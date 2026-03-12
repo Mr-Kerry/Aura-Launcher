@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -13,9 +13,6 @@ let mainWindow = null;
 let tray = null;
 let scanPromise = null;
 let isScanning = false;
-let iconCache = new Map();
-let iconCacheLoaded = false;
-let iconCacheSaveTimer = null;
 const WINDOW_WIDTH = 560;
 const MIN_WINDOW_HEIGHT = 110;
 const MAX_WINDOW_HEIGHT = 520;
@@ -23,7 +20,7 @@ const MAX_WINDOW_HEIGHT = 520;
 const DEFAULT_CONFIG = {
   autoLaunch: false,
   shortcut: 'Alt+Space',
-  refreshCooldown:2
+  refreshCooldown: 2
 };
 
 let currentConfig = null;
@@ -33,54 +30,47 @@ function getConfigPath() {
   return path.join(app.getPath('userData'), 'config.json');
 }
 
-
 function getIconCachePath() {
   return path.join(app.getPath('userData'), 'icon-cache.json');
 }
 
-function loadIconCache() {
-  if (iconCacheLoaded) return;
-  iconCacheLoaded = true;
-
+function readIconCacheFile() {
   const cachePath = getIconCachePath();
-  if (!fs.existsSync(cachePath)) return;
+  if (!fs.existsSync(cachePath)) return {};
 
   try {
     const raw = fs.readFileSync(cachePath, 'utf8');
     const parsed = JSON.parse(raw || '{}');
-    if (parsed && typeof parsed === 'object') {
-      iconCache = new Map(Object.entries(parsed));
-    }
+    return parsed && typeof parsed === 'object' ? parsed : {};
   } catch (error) {
     console.error('读取图标缓存失败:', error);
+    return {};
   }
 }
 
-function scheduleSaveIconCache() {
-  if (iconCacheSaveTimer) return;
-  iconCacheSaveTimer = setTimeout(() => {
-    iconCacheSaveTimer = null;
-    try {
-      const cachePath = getIconCachePath();
-      const data = Object.fromEntries(iconCache.entries());
-      fs.writeFileSync(cachePath, JSON.stringify(data), 'utf8');
-    } catch (error) {
-      console.error('保存图标缓存失败:', error);
-    }
-  }, 500);
+function writeIconCacheFile(cache) {
+  try {
+    const cachePath = getIconCachePath();
+    fs.writeFileSync(cachePath, JSON.stringify(cache), 'utf8');
+  } catch (error) {
+    console.error('保存图标缓存失败:', error);
+  }
 }
 
 function getCachedIcon(id) {
   if (!id) return '';
-  return iconCache.get(id) || '';
+  const cache = readIconCacheFile();
+  return cache[id] || '';
 }
 
 function setCachedIcon(id, iconData) {
   if (!id || !iconData) return;
-  if (iconCache.get(id) === iconData) return;
-  iconCache.set(id, iconData);
-  scheduleSaveIconCache();
+  const cache = readIconCacheFile();
+  if (cache[id] === iconData) return;
+  cache[id] = iconData;
+  writeIconCacheFile(cache);
 }
+
 function readConfig() {
   const configPath = getConfigPath();
 
@@ -171,6 +161,10 @@ function normalizeAppList(apps) {
       source: item?.source || 'unknown'
     };
 
+    if (item?.iconRef && typeof item.iconRef === 'object') {
+      record.iconRef = { ...item.iconRef };
+    }
+
     if (Array.isArray(item?.args) && item.args.length > 0) {
       record.args = item.args.slice();
     }
@@ -182,9 +176,6 @@ function normalizeAppList(apps) {
       }
     }
 
-        if (item?.iconRef && typeof item.iconRef === 'object') {
-      record.iconRef = { ...item.iconRef };
-    }
     result.push(record);
   }
 
@@ -224,14 +215,12 @@ function createWindow() {
       }
     }, 80);
   });
-
 }
 
 function createTray(platform) {
-  // 1. 设置托盘图标
   const iconPath = platform?.getTrayIconPath
     ? platform.getTrayIconPath({ path, __dirname })
-    : path.join(__dirname, 'icons', 'icon.png');
+    : path.join(__dirname, 'icons', 'icon.ico');
 
   let trayIcon;
 
@@ -244,18 +233,16 @@ function createTray(platform) {
 
   tray = new Tray(trayIcon);
 
-  // 2. 设置鼠标悬停提示文字
-  tray.setToolTip('光晕启动器 (Aura Launcher)');
+  tray.setToolTip('快捷启动器 (QuickLauncher)');
 
-  // 3. 设置右键菜单
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: '显示 / 隐藏搜索框',
+      label: '显示 / 隐藏面板',
       click: () => { showLauncher(); }
     },
-    { type: 'separator' }, // 分割线
+    { type: 'separator' },
     {
-      label: '退出',
+      label: '彻底退出',
       click: () => {
         app.isQuiting = true;
         app.quit();
@@ -265,7 +252,6 @@ function createTray(platform) {
 
   tray.setContextMenu(contextMenu);
 
-  // 4. 左键单击托盘图标时，也显示/隐藏窗口
   tray.on('click', () => {
     showLauncher();
   });
@@ -302,14 +288,6 @@ async function scanApplications(platform) {
     try {
       const rawApps = await (platform?.scanApplications ? platform.scanApplications() : []);
       appList = normalizeAppList(rawApps);
-      if (iconCacheLoaded) {
-        appList.forEach((item) => {
-          if (!item.icon) {
-            const cached = getCachedIcon(item.id);
-            if (cached) item.icon = cached;
-          }
-        });
-      }
       console.log(`Scanned ${appList.length} applications`);
       return appList;
     } catch (error) {
@@ -347,6 +325,7 @@ function resolveTarget(input) {
 
 async function resolveAppIcon(target, platform) {
   if (!target) return '';
+
   const cached = getCachedIcon(target.id);
   if (cached) return cached;
 
@@ -387,13 +366,14 @@ async function launchApplication(targetOrPath, platform) {
       error: error.message || '启动失败'
     };
   }
-}function createApp(platformModule) {
+}
+
+function createApp(platformModule) {
   const platform = platformModule || {};
 
   app.whenReady().then(async () => {
     createWindow();
     createTray(platform);
-    loadIconCache();
 
     currentConfig = readConfig();
     const applyResult = applyConfig(currentConfig, platform);
@@ -406,7 +386,7 @@ async function launchApplication(targetOrPath, platform) {
       platform.applyPackagedAutoLaunch(app);
     }
 
-            ipcMain.handle('get-settings', async () => {
+    ipcMain.handle('get-settings', async () => {
       currentConfig = readConfig();
       return currentConfig;
     });
@@ -484,19 +464,15 @@ async function launchApplication(targetOrPath, platform) {
       for (const id of list) {
         const appItem = findAppById(id);
         if (!appItem) continue;
-        if (appItem.icon) {
-          results.push({ id: appItem.id, icon: appItem.icon });
-          continue;
-        }
         const icon = await resolveAppIcon(appItem, platform);
         if (icon) {
-          appItem.icon = icon;
           results.push({ id: appItem.id, icon });
         }
       }
 
       return results;
     });
+
     ipcMain.handle('resize-window', async (_event, height) => {
       if (!mainWindow || mainWindow.isDestroyed()) {
         return { success: false };
@@ -569,10 +545,3 @@ async function launchApplication(targetOrPath, platform) {
 module.exports = {
   createApp
 };
-
-
-
-
-
-
-

@@ -88,7 +88,7 @@
       color: rgba(255, 255, 255, 0.3);
     }
 
-    #toggle-settings-btn {\r\n      width: 24px;\r\n      height: 24px;
+    #toggle-settings-btn {      width: 24px;      height: 24px;
       flex: 0 0 28px;
       border: none;
       border-radius: 6px;
@@ -260,7 +260,7 @@
       background: #0070E0;
     }
 
-    #app-list {\r\n      scrollbar-gutter: stable;
+    #app-list {      scrollbar-gutter: stable;
       list-style: none;
       margin: 0;
       padding: 8px 10px 10px 10px;
@@ -440,8 +440,7 @@
     let isLoaded = false;
 
     const appById = new Map();
-    const iconCache = new Map();
-    const pendingIconIds = new Set();
+        const pendingIconIds = new Set();
     let iconLoadTimer = null;
     let iconLoading = false;
     const ICON_BATCH_SIZE = 48;
@@ -570,7 +569,7 @@
       renderAppList();
     }
 
-    function createAppItem(app, index) {
+        function createAppItem(app, index) {
       const li = document.createElement('li');
       li.className = 'app-item' + (index === activeIndex ? ' active' : '');
       li.dataset.appId = app.id || '';
@@ -658,23 +657,10 @@
       for (const app of filteredApps) {
         if (ids.length >= ICON_BATCH_SIZE) break;
         if (!app?.id) continue;
+        if (pendingIconIds.has(app.id)) continue;
 
-        if (app.icon) {
-          iconCache.set(app.id, app.icon);
-          continue;
-        }
-
-        const cached = iconCache.get(app.id);
-        if (cached) {
-          app.icon = cached;
-          updateAppIconInList(app.id, cached);
-          continue;
-        }
-
-        if (!pendingIconIds.has(app.id)) {
-          pendingIconIds.add(app.id);
-          ids.push(app.id);
-        }
+        pendingIconIds.add(app.id);
+        ids.push(app.id);
       }
 
       if (!ids.length) return;
@@ -685,9 +671,6 @@
         if (Array.isArray(results)) {
           results.forEach((item) => {
             if (!item?.id || !item?.icon) return;
-            iconCache.set(item.id, item.icon);
-            const app = appById.get(item.id);
-            if (app) app.icon = item.icon;
             updateAppIconInList(item.id, item.icon);
           });
         }
@@ -698,7 +681,7 @@
         iconLoading = false;
       }
 
-      if (filteredApps.some((app) => app && app.id && !app.icon && !pendingIconIds.has(app.id))) {
+      if (filteredApps.some((app) => app && app.id && !pendingIconIds.has(app.id))) {
         queueIconLoad();
       }
     }
@@ -770,7 +753,6 @@
       const app = filteredApps[activeIndex];
       await launchAppItem(app);
     }
-
     function normalizeShortcutForDisplay(parts) {
       return parts.join('+');
     }
@@ -912,7 +894,6 @@
         allApps.forEach((app) => {
           if (!app?.id) return;
           appById.set(app.id, app);
-          if (app.icon) iconCache.set(app.id, app.icon);
         });
         lastScanTime = Date.now(); 
 
