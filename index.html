@@ -1,0 +1,1077 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Aura</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --accent-color: #0A84FF;
+      --bg-color: #1e1e1e;
+      --border-color: rgba(255, 255, 255, 0.15);
+      --text-main: #ffffff;
+      --text-secondary: rgba(255, 255, 255, 0.5);
+      --item-active-bg: rgba(255, 255, 255, 0.1);
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      color: var(--text-main);
+      overflow: hidden;
+      height: 100%;
+    }
+
+    body {
+      user-select: none;
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .window {
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      background: var(--bg-color);
+      backdrop-filter: blur(40px) saturate(180%);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      box-shadow: none;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .drag-bar {
+      height: 16px;
+      -webkit-app-region: drag;
+      cursor: move;
+      flex-shrink: 0;
+    }
+
+    .search-row {
+      display: flex;
+      min-height: 38px;
+      align-items: center;
+      gap: 12px;
+      padding: 4px 16px 8px 16px;
+      border-bottom: 1px solid transparent; 
+      position: relative;
+    }
+    
+    .search-row::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 20px;
+      right: 20px;
+      height: 1px;
+      background: var(--border-color);
+    }
+
+    #search-input {
+      flex: 1;
+      line-height: 24px;
+      border: none;
+      outline: none;
+      background: transparent;
+      font-size: 20px;
+      font-weight: 300;
+      color: var(--text-main);
+      padding: 0;
+      caret-color: var(--accent-color);
+    }
+
+    #search-input::placeholder {
+      color: rgba(255, 255, 255, 0.3);
+    }
+
+    #toggle-settings-btn {\r\n      width: 24px;\r\n      height: 24px;
+      flex: 0 0 28px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+
+    #toggle-settings-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-main);
+    }
+
+    #toggle-settings-btn.expanded {
+      transform: rotate(180deg);
+      background: rgba(255, 255, 255, 0.15);
+      color: var(--text-main);
+    }
+
+    #status {
+      min-height: 18px;
+      padding: 6px 20px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex-shrink: 0;
+    }
+
+    #settings-panel {
+      flex-shrink: 0;
+      overflow: hidden;
+      max-height: 0;
+      opacity: 0;
+      padding: 0 20px;
+      background: rgba(0, 0, 0, 0.1);
+      transition: max-height 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), 
+                  opacity 0.2s ease, 
+                  padding-top 0.2s ease,
+                  padding-bottom 0.2s ease;
+    }
+
+    #settings-panel.expanded {
+      max-height: 250px;
+      opacity: 1;
+      padding-top: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .setting-line {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .setting-line:last-child {
+      margin-bottom: 0;
+      margin-top: 16px;
+    }
+
+    .setting-label {
+      width: 60px;
+      flex: 0 0 60px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .checkbox-line {
+      display: flex;
+      align-items: center;
+      margin-bottom: 16px;
+      font-size: 13px;
+      color: var(--text-main);
+      cursor: pointer;
+    }
+
+    .checkbox-line input[type="checkbox"] {
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 4px;
+      margin-right: 8px;
+      outline: none;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .checkbox-line input[type="checkbox"]:checked {
+      background: var(--accent-color);
+      border-color: var(--accent-color);
+    }
+    .checkbox-line input[type="checkbox"]:checked::after {
+      content: '';
+      position: absolute;
+      left: 4px;
+      top: 1px;
+      width: 4px;
+      height: 8px;
+      border: solid white;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+
+    .text-input {
+      flex: 1;
+      height: 32px;
+      box-sizing: border-box;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      padding: 0 10px;
+      background: rgba(0, 0, 0, 0.2);
+      color: var(--text-main);
+      outline: none;
+      font-size: 13px;
+      font-family: inherit;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .text-input:focus, .text-input.recording {
+      border-color: var(--accent-color);
+      box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.3);
+    }
+
+    #shortcut-input {
+      cursor: pointer;
+    }
+    #shortcut-input:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .action-btn {
+      height: 32px;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px;
+      padding: 0 16px;
+      cursor: pointer;
+      color: var(--text-main);
+      font-size: 13px;
+      font-weight: 500;
+      background: rgba(255,255,255,0.1);
+      transition: all 0.2s;
+    }
+
+    .action-btn:hover {
+      background: rgba(255,255,255,0.15);
+    }
+
+    .action-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .action-btn.primary {
+      background: var(--accent-color);
+      border-color: transparent;
+    }
+
+    .action-btn.primary:hover {
+      background: #0070E0;
+    }
+
+    #app-list {\r\n      scrollbar-gutter: stable;
+      list-style: none;
+      margin: 0;
+      padding: 8px 10px 10px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+      flex: 1 1 auto;
+    }
+
+    #app-list::-webkit-scrollbar {
+      width: 8px;
+      background: transparent;
+    }
+
+    #app-list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    #app-list::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+    }
+
+    #app-list::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.35);
+    }
+
+    .app-item {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      height: 52px;
+      padding: 0 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      box-sizing: border-box;
+      transition: background 0.1s ease;
+    }
+
+    .app-item.active {
+      background: var(--item-active-bg);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+
+    .app-icon {
+      width: 32px;
+      height: 32px;
+      flex: 0 0 32px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--text-main);
+      overflow: hidden;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+
+    .app-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .app-meta {
+      min-width: 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .app-name {
+      font-size: 16px;
+      font-weight: 400;
+      color: var(--text-main);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 2px;
+    }
+
+    .app-path {
+      font-size: 11px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .empty-hint {
+      padding: 24px 10px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="window">
+    <div class="drag-bar"></div>
+
+    <div class="search-row">
+      <input id="search-input" type="text" placeholder="搜索应用..." autocomplete="off" spellcheck="false" />
+      <button id="toggle-settings-btn" title="展开设置" aria-label="展开设置">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </button>
+    </div>
+
+    <div id="status"></div>
+
+    <div id="settings-panel">
+      <label class="checkbox-line">
+        <input type="checkbox" id="auto-launch-checkbox" />
+        开机自动启动
+      </label>
+
+      <div class="setting-line">
+        <span class="setting-label">快捷键</span>
+        <input
+          id="shortcut-input"
+          class="text-input"
+          type="text"
+          readonly
+          placeholder="展开设置后直接按下快捷键"
+          value="Alt+Space"
+        />
+      </div>
+
+      <div class="setting-line">
+        <span class="setting-label">后台刷新</span>
+        <input
+          id="cooldown-input"
+          class="text-input"
+          type="number"
+          min="0"
+          step="0.5"
+          placeholder="冷却时间(分钟)，0为每次打开都刷"
+        />
+        <span style="font-size: 13px; color: var(--text-secondary);">分钟</span>
+      </div>
+
+      <div class="setting-line" style="justify-content: space-between;">
+        <button id="force-rescan-btn" class="action-btn">强制刷新应用</button>
+        <button id="save-settings-btn" class="action-btn primary">保存设置</button>
+      </div>
+    </div>
+
+    <ul id="app-list"></ul>
+  </div>
+
+  <script>
+    const searchInput = document.getElementById('search-input');
+    const statusEl = document.getElementById('status');
+    const appListEl = document.getElementById('app-list');
+
+    const settingsPanel = document.getElementById('settings-panel');
+    const toggleSettingsBtn = document.getElementById('toggle-settings-btn');
+    const autoLaunchCheckbox = document.getElementById('auto-launch-checkbox');
+    const shortcutInput = document.getElementById('shortcut-input');
+    const saveSettingsBtn = document.getElementById('save-settings-btn');
+
+    const forceRescanBtn = document.getElementById('force-rescan-btn');
+    const cooldownInput = document.getElementById('cooldown-input'); 
+    
+    let lastScanTime = Date.now();
+    let currentCooldownMs = 120000;
+
+    let allApps = [];
+    let filteredApps = [];
+    let activeIndex = 0;
+    let isLoaded = false;
+
+    const appById = new Map();
+    const iconCache = new Map();
+    const pendingIconIds = new Set();
+    let iconLoadTimer = null;
+    let iconLoading = false;
+    const ICON_BATCH_SIZE = 48;
+
+    let isSettingsExpanded = false;
+    let isRecordingShortcut = false;
+    let pendingShortcut = '';
+
+    function normalizeKeyword(value) {
+      return String(value || '').trim().toLowerCase();
+    }
+
+    function setStatus(text) {
+      statusEl.textContent = text || '';
+    }
+
+    function getDisplayTextFromAccelerator(accelerator) {
+      return String(accelerator || '')
+        .replace(/\bCommandOrControl\b/g, 'Ctrl')
+        .replace(/\bCommand\b/g, '⌘'); 
+    }
+
+    function getDesiredWindowHeight() {
+      const keyword = normalizeKeyword(searchInput.value);
+      const baseHeight = 110; 
+      const settingsHeight = isSettingsExpanded ? 180 : 0; 
+
+      if (!isLoaded || !keyword) {
+        return baseHeight + settingsHeight;
+      }
+
+      if (filteredApps.length === 0) {
+        return baseHeight + 76 + settingsHeight;
+      }
+
+      const itemHeight = 54; 
+      const visibleCount = Math.min(filteredApps.length, 6); 
+      const listPadding = 18; 
+
+      return baseHeight + visibleCount * itemHeight + listPadding + settingsHeight;
+    }
+
+    async function syncWindowHeight() {
+      try {
+        if (window.electronAPI?.resizeWindow) {
+          await window.electronAPI.resizeWindow(getDesiredWindowHeight());
+        }
+      } catch (error) {
+        console.error('调整窗口高度失败:', error);
+      }
+    }
+
+    function startShortcutRecording() {
+      isRecordingShortcut = true;
+      pendingShortcut = '';
+      shortcutInput.value = '请按下快捷键...';
+      shortcutInput.classList.add('recording');
+    }
+
+    function stopShortcutRecording(resetToLastValue = true) {
+      isRecordingShortcut = false;
+      shortcutInput.classList.remove('recording');
+
+      if (resetToLastValue) {
+        const lastValue =
+          shortcutInput.dataset.accelerator ||
+          pendingShortcut ||
+          'Alt+Space';
+
+        refreshShortcutDisplay(lastValue);
+      }
+    }
+
+    function toggleSettings(force) {
+      const nextExpanded = typeof force === 'boolean' ? force : !isSettingsExpanded;
+      const wasExpanded = isSettingsExpanded;
+
+      isSettingsExpanded = nextExpanded;
+
+      settingsPanel.classList.toggle('expanded', isSettingsExpanded);
+      toggleSettingsBtn.classList.toggle('expanded', isSettingsExpanded);
+      
+      toggleSettingsBtn.title = isSettingsExpanded ? '收起设置' : '展开设置';
+
+      if (wasExpanded && !isSettingsExpanded) {
+        stopShortcutRecording(true);
+        renderAppList();
+      }
+
+      syncWindowHeight();
+      setTimeout(syncWindowHeight, 300);
+    }
+
+    function refreshShortcutDisplay(accelerator) {
+      const value = accelerator || 'Alt+Space';
+      pendingShortcut = value;
+      shortcutInput.dataset.accelerator = value;
+      shortcutInput.value = getDisplayTextFromAccelerator(value);
+    }
+
+    function filterApps() {
+      const keyword = normalizeKeyword(searchInput.value);
+
+      if (!keyword) {
+        filteredApps = [];
+        activeIndex = 0;
+        renderAppList();
+        return;
+      }
+
+      filteredApps = allApps.filter((app) => {
+        const name = String(app.name || '').toLowerCase();
+        const pinyin = String(app.pinyin || '').toLowerCase();
+        const initials = String(app.initials || '').toLowerCase();
+        const fullPath = String(app.path || '').toLowerCase();
+
+        return (
+          name.includes(keyword) ||
+          pinyin.includes(keyword) ||
+          initials.includes(keyword) ||
+          fullPath.includes(keyword)
+        );
+      });
+
+      activeIndex = 0;
+      renderAppList();
+    }
+
+    function createAppItem(app, index) {
+      const li = document.createElement('li');
+      li.className = 'app-item' + (index === activeIndex ? ' active' : '');
+      li.dataset.appId = app.id || '';
+
+      const icon = document.createElement('div');
+      icon.className = 'app-icon';
+
+      if (app.icon) {
+        const img = document.createElement('img');
+        img.src = app.icon;
+        img.alt = app.name || 'App';
+        icon.appendChild(img);
+      } else {
+        icon.textContent = String(app.name || '?').slice(0, 1).toUpperCase();
+      }
+
+      const meta = document.createElement('div');
+      meta.className = 'app-meta';
+
+      const name = document.createElement('div');
+      name.className = 'app-name';
+      name.textContent = app.name || '未命名应用';
+
+      const path = document.createElement('div');
+      path.className = 'app-path';
+      path.textContent = app.path || '';
+
+      meta.appendChild(name);
+      meta.appendChild(path);
+
+      li.appendChild(icon);
+      li.appendChild(meta);
+
+      li.addEventListener('mouseenter', () => {
+        setActiveIndex(index);
+      });
+
+      li.addEventListener('click', async (event) => {
+        event.preventDefault();
+        setActiveIndex(index);
+        await launchAppItem(app);
+      });
+
+      return li;
+    }
+
+    function setActiveIndex(nextIndex) {
+      activeIndex = nextIndex;
+      const items = appListEl.querySelectorAll('.app-item');
+      items.forEach((item, index) => {
+        item.classList.toggle('active', index === activeIndex);
+      });
+    }
+
+    function updateAppIconInList(appId, iconData) {
+      if (!appId || !iconData) return;
+
+      const items = appListEl.querySelectorAll('.app-item');
+      for (const item of items) {
+        if (item.dataset.appId !== appId) continue;
+        const icon = item.querySelector('.app-icon');
+        if (!icon) return;
+
+        icon.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = iconData;
+        img.alt = appById.get(appId)?.name || 'App';
+        icon.appendChild(img);
+        return;
+      }
+    }
+
+    function queueIconLoad() {
+      if (!window.electronAPI?.getAppIcons) return;
+      if (iconLoadTimer) {
+        clearTimeout(iconLoadTimer);
+      }
+      iconLoadTimer = setTimeout(loadIconsForVisible, 60);
+    }
+
+    async function loadIconsForVisible() {
+      if (iconLoading) return;
+
+      const ids = [];
+      for (const app of filteredApps) {
+        if (ids.length >= ICON_BATCH_SIZE) break;
+        if (!app?.id) continue;
+
+        if (app.icon) {
+          iconCache.set(app.id, app.icon);
+          continue;
+        }
+
+        const cached = iconCache.get(app.id);
+        if (cached) {
+          app.icon = cached;
+          updateAppIconInList(app.id, cached);
+          continue;
+        }
+
+        if (!pendingIconIds.has(app.id)) {
+          pendingIconIds.add(app.id);
+          ids.push(app.id);
+        }
+      }
+
+      if (!ids.length) return;
+      iconLoading = true;
+
+      try {
+        const results = await window.electronAPI.getAppIcons(ids);
+        if (Array.isArray(results)) {
+          results.forEach((item) => {
+            if (!item?.id || !item?.icon) return;
+            iconCache.set(item.id, item.icon);
+            const app = appById.get(item.id);
+            if (app) app.icon = item.icon;
+            updateAppIconInList(item.id, item.icon);
+          });
+        }
+      } catch (error) {
+        console.error('加载图标失败:', error);
+      } finally {
+        ids.forEach((id) => pendingIconIds.delete(id));
+        iconLoading = false;
+      }
+
+      if (filteredApps.some((app) => app && app.id && !app.icon && !pendingIconIds.has(app.id))) {
+        queueIconLoad();
+      }
+    }
+
+    async function launchAppItem(app) {
+      if (!app) return;
+
+      try {
+        const result = await window.electronAPI.launchApp(app);
+        if (!result?.success) {
+          setStatus(result?.error || '启动失败');
+          return;
+        }
+
+        setStatus(`已启动：${app.name}`);
+        searchInput.value = '';
+        filteredApps = [];
+        activeIndex = 0;
+        renderAppList();
+
+        if (window.electronAPI?.hideWindow) {
+          await window.electronAPI.hideWindow();
+        }
+      } catch (error) {
+        console.error('启动应用失败:', error);
+        setStatus('启动应用失败');
+      }
+    }
+
+    function renderAppList() {
+      const keyword = normalizeKeyword(searchInput.value);
+      appListEl.innerHTML = '';
+
+      if (!isLoaded) {
+        setStatus('正在扫描应用...');
+        syncWindowHeight();
+        return;
+      }
+
+      if (!keyword) {
+        setStatus(`已准备 ${allApps.length} 个应用，输入后显示结果`);
+        syncWindowHeight();
+        return;
+      }
+
+      if (filteredApps.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'empty-hint';
+        empty.textContent = '没有找到匹配的应用';
+        appListEl.appendChild(empty);
+        setStatus('未找到匹配应用');
+        syncWindowHeight();
+        return;
+      }
+
+      filteredApps.forEach((app, index) => {
+        appListEl.appendChild(createAppItem(app, index));
+      });
+
+      setActiveIndex(Math.min(activeIndex, filteredApps.length - 1));
+      queueIconLoad();
+      setStatus(`找到 ${filteredApps.length} 个结果，点击运行`);
+      syncWindowHeight();
+    }
+
+    async function launchActiveApp() {
+      if (!filteredApps.length) return;
+
+      const app = filteredApps[activeIndex];
+      await launchAppItem(app);
+    }
+
+    function normalizeShortcutForDisplay(parts) {
+      return parts.join('+');
+    }
+
+    function normalizeShortcutForElectron(parts) {
+      return parts
+        .map((part) => {
+          if (part === 'Ctrl') return 'CommandOrControl';
+          return part;
+        })
+        .join('+');
+    }
+
+    function enrichApps(apps) {
+      return apps.map((app) => {
+        const name = String(app.name || '').trim();
+
+        let pinyinInfo = { full: '', initials: '' };
+        try {
+          if (window.electronAPI?.getPinyinInfo) {
+            pinyinInfo = window.electronAPI.getPinyinInfo(name) || { full: '', initials: '' };
+          }
+        } catch (error) {
+          console.error('获取拼音失败:', name, error);
+        }
+
+        return {
+          ...app,
+          pinyin: pinyinInfo.full || '',
+          initials: pinyinInfo.initials || ''
+        };
+      });
+    }
+
+    function buildShortcutFromEvent(event) {
+      const parts = [];
+
+      if (event.ctrlKey) parts.push('Ctrl');
+      if (event.altKey) parts.push('Alt');
+      if (event.shiftKey) parts.push('Shift');
+      if (event.metaKey) parts.push('Super');
+
+      const ignoredKeys = ['Control', 'Shift', 'Alt', 'Meta'];
+      if (!ignoredKeys.includes(event.key)) {
+        let key = event.key;
+
+        if (key === ' ') key = 'Space';
+        else if (key === 'ArrowUp') key = 'Up';
+        else if (key === 'ArrowDown') key = 'Down';
+        else if (key === 'ArrowLeft') key = 'Left';
+        else if (key === 'ArrowRight') key = 'Right';
+        else if (key === 'Escape') key = 'Esc';
+        else if (key.length === 1) key = key.toUpperCase();
+
+        parts.push(key);
+      }
+
+      const modifierOnly = ['Ctrl', 'Alt', 'Shift', 'Super'];
+      if (parts.length === 0) return null;
+      if (parts.length === 1 && modifierOnly.includes(parts[0])) return null;
+
+      return {
+        display: normalizeShortcutForDisplay(parts),
+        accelerator: normalizeShortcutForElectron(parts)
+      };
+    }
+
+    async function loadSettings() {
+      try {
+        const settings = await window.electronAPI.getSettings();
+        autoLaunchCheckbox.checked = !!settings.autoLaunch;
+        refreshShortcutDisplay(settings.shortcut || 'Alt+Space');
+
+        const mins = settings.refreshCooldown !== undefined ? parseFloat(settings.refreshCooldown) : 2;
+        cooldownInput.value = mins;
+        currentCooldownMs = mins * 60 * 1000; 
+      } catch (error) {
+        console.error('读取设置失败:', error);
+        setStatus('读取设置失败');
+      }
+    }
+
+    async function saveSettings() {
+      try {
+        const shortcutValue =
+          pendingShortcut ||
+          shortcutInput.dataset.accelerator ||
+          String(shortcutInput.value || '').trim();
+
+        const cooldownMins = Math.max(0, parseFloat(cooldownInput.value) || 0);
+
+        const result = await window.electronAPI.saveSettings({
+          autoLaunch: autoLaunchCheckbox.checked,
+          shortcut: shortcutValue,
+          refreshCooldown: cooldownMins
+        });
+
+        currentCooldownMs = cooldownMins * 60 * 1000;
+
+        if (!result?.success) {
+          setStatus(result?.error || '保存设置失败');
+          return;
+        }
+
+        const accelerator = result.config?.shortcut || shortcutValue || 'Alt+Space';
+        refreshShortcutDisplay(accelerator);
+
+        setStatus(`设置已保存：${getDisplayTextFromAccelerator(accelerator)}`);
+      } catch (error) {
+        console.error('保存设置失败:', error);
+        setStatus('保存设置失败');
+      }
+    }
+
+    // 更新后的 loadApps，支持静默刷新
+    async function loadApps(isSilent = false) {
+      try {
+        if (!isSilent) {
+          isLoaded = false;
+          setStatus('正在扫描应用...');
+          renderAppList();
+        }
+
+        const result = await window.electronAPI.getAppList();
+
+        if (result?.error) {
+          if (!isSilent) {
+            allApps = [];
+            filteredApps = [];
+            isLoaded = true;
+            setStatus(`扫描失败：${result.error}`);
+            renderAppList();
+          }
+          return;
+        }
+
+        allApps = enrichApps(Array.isArray(result?.apps) ? result.apps : []);
+        appById.clear();
+        allApps.forEach((app) => {
+          if (!app?.id) return;
+          appById.set(app.id, app);
+          if (app.icon) iconCache.set(app.id, app.icon);
+        });
+        lastScanTime = Date.now(); 
+
+        if (!isSilent) {
+          filteredApps = [];
+          activeIndex = 0;
+          isLoaded = true;
+          renderAppList();
+        } else {
+          isLoaded = true;
+          filterApps(); // 静默刷新只更新底层数据，不打断输入
+        }
+      } catch (error) {
+        console.error('加载应用失败:', error);
+        if (!isSilent) {
+          allApps = [];
+          filteredApps = [];
+          isLoaded = true;
+          setStatus(`加载应用失败：${error.message || error}`);
+          renderAppList();
+        }
+      }
+    }
+
+    toggleSettingsBtn.addEventListener('click', () => {
+      toggleSettings();
+    });
+
+    saveSettingsBtn.addEventListener('click', async () => {
+      await saveSettings();
+    });
+
+    // 强制刷新按钮点击事件
+    forceRescanBtn.addEventListener('click', async () => {
+      const originalText = forceRescanBtn.textContent;
+      forceRescanBtn.textContent = '扫描中...';
+      forceRescanBtn.disabled = true;
+
+      await loadApps(false); 
+
+      forceRescanBtn.textContent = originalText;
+      forceRescanBtn.disabled = false;
+      toggleSettings(false); 
+      setStatus(`刷新完成，已就绪 ${allApps.length} 个应用`);
+    });
+
+    searchInput.addEventListener('input', () => {
+      filterApps();
+    });
+
+    shortcutInput.addEventListener('click', (event) => {
+      event.stopPropagation(); 
+      if (!isRecordingShortcut) {
+        startShortcutRecording();
+      }
+    });
+
+    document.addEventListener('click', (event) => {
+      if (isRecordingShortcut && event.target !== shortcutInput) {
+        stopShortcutRecording(true);
+        setStatus('已取消修改快捷键');
+      }
+    });
+
+    document.addEventListener('keydown', async (event) => {
+      if (isRecordingShortcut) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const shortcut = buildShortcutFromEvent(event);
+        if (!shortcut) {
+          shortcutInput.value = '请至少包含一个普通键';
+          return;
+        }
+
+        shortcutInput.classList.remove('recording');
+        isRecordingShortcut = false;
+        refreshShortcutDisplay(shortcut.accelerator);
+        setStatus(`快捷键待保存：${getDisplayTextFromAccelerator(shortcut.accelerator)}`);
+        return;
+      }
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        if (filteredApps.length > 0) {
+          activeIndex = (activeIndex + 1) % filteredApps.length;
+          const list = document.getElementById('app-list');
+          const items = list.children;
+          if (items[activeIndex]) {
+            items[activeIndex].scrollIntoView({ block: 'nearest' });
+          }
+          setActiveIndex(activeIndex);
+        }
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (filteredApps.length > 0) {
+          activeIndex = (activeIndex - 1 + filteredApps.length) % filteredApps.length;
+          const list = document.getElementById('app-list');
+          const items = list.children;
+          if (items[activeIndex]) {
+            items[activeIndex].scrollIntoView({ block: 'nearest' });
+          }
+          setActiveIndex(activeIndex);
+        }
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        if (document.activeElement === searchInput || document.activeElement.tagName === 'BODY') {
+          event.preventDefault();
+          await launchActiveApp();
+        }
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+
+        if (isRecordingShortcut) {
+          stopShortcutRecording(true);
+          setStatus('已取消录入快捷键');
+          return;
+        }
+
+        if (isSettingsExpanded) {
+          toggleSettings(false);
+          return;
+        }
+
+        if (window.electronAPI?.hideWindow) {
+          await window.electronAPI.hideWindow();
+        }
+      }
+    });
+
+    window.addEventListener('load', async () => {
+      await loadSettings();
+      await loadApps();
+      searchInput.focus();
+      syncWindowHeight();
+    });
+
+    window.addEventListener('resize', () => {
+      syncWindowHeight();
+    });
+
+    window.electronAPI?.onLauncherShow(() => {
+      syncWindowHeight();
+      searchInput.focus();
+      searchInput.select();
+
+      if (Date.now() - lastScanTime > currentCooldownMs) {
+        console.log('触发静默刷新...');
+        loadApps(true); 
+      }
+    });
+  </script>
+</body>
+</html>

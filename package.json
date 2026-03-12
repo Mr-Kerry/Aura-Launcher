@@ -1,0 +1,71 @@
+{
+  "name": "aura_launcher",
+  "version": "1.1.0",
+  "description": "A simple quick launcher built with Electron",
+  "main": "main.js",
+  "productName": "Aura",
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "cross-env ELECTRON_DISABLE_SECURITY_WARNINGS=1 electron .",
+    "build:win": "electron-builder --win nsis",
+    "build:portable": "electron-builder --win portable"
+  },
+  "keywords": [
+    "electron",
+    "launcher",
+    "aura-launcher"
+  ],
+  "devDependencies": {
+    "cross-env": "^10.1.0",
+    "electron": "^41.0.0",
+    "electron-builder": "^26.8.1"
+  },
+  "dependencies": {
+    "pinyin-pro": "^3.28.0"
+  },
+  "build": {
+    "appId": "com.auralauncher.app",
+    "productName": "Aura",
+    "compression": "maximum",
+    "asar": true,
+    "files": [      
+      "main.js",
+      "main.common.js",
+      "main.win.js",
+      "main.macos.js",
+      "main.linux.js",
+      "preload.js",
+      "index.html",
+      "package.json",
+      "icons"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "icon": "icons/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Aura",
+      "perMachine": false
+    }
+  }
+}
+
+
