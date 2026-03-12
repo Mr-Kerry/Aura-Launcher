@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage } = require('electron');
+﻿const { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -220,7 +220,7 @@ function createWindow() {
 function createTray(platform) {
   const iconPath = platform?.getTrayIconPath
     ? platform.getTrayIconPath({ path, __dirname })
-    : path.join(__dirname, 'icons', 'icon.ico');
+    : path.join(__dirname, 'icons', 'icon.png');
 
   let trayIcon;
 
@@ -233,7 +233,7 @@ function createTray(platform) {
 
   tray = new Tray(trayIcon);
 
-  tray.setToolTip('快捷启动器 (QuickLauncher)');
+  tray.setToolTip('Aura Launch');
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -242,7 +242,7 @@ function createTray(platform) {
     },
     { type: 'separator' },
     {
-      label: '彻底退出',
+      label: '退出',
       click: () => {
         app.isQuiting = true;
         app.quit();
