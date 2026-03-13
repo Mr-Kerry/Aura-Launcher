@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>设置</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 16px;
+      margin: 0;
+      background: #1f1f1f;
+      color: #fff;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    input {
+      flex: 1;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid #444;
+      background: #2a2a2a;
+      color: #fff;
+    }
+
+    button {
+      padding: 8px 12px;
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h3>设置</h3>
+
+  <div class="row">
+    <input id="scan-dir-input" placeholder="应用扫描目录" />
+    <button id="choose-dir-btn">选择</button>
+  </div>
+
+  <div class="row">
+    <button id="save-settings-btn">保存设置</button>
+  </div>
+
+  <script>
+    const scanDirInput = document.getElementById('scan-dir-input');
+    const chooseDirBtn = document.getElementById('choose-dir-btn');
+    const saveSettingsBtn = document.getElementById('save-settings-btn');
+
+    async function init() {
+      const settings = await window.launcherAPI.loadSettings();
+      scanDirInput.value = settings?.scanDir || '';
+    }
+
+    chooseDirBtn.addEventListener('click', async () => {
+      const dir = await window.launcherAPI.chooseDirectory();
+      if (dir) scanDirInput.value = dir;
+    });
+
+    saveSettingsBtn.addEventListener('click', async () => {
+      await window.launcherAPI.saveSettings({
+        scanDir: scanDirInput.value.trim()
+      });
+      window.close();
+    });
+
+    init();
+  </script>
+</body>
+</html>

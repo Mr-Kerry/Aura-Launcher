@@ -1,6 +1,8 @@
 ﻿const { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { createWorker } = require('tesseract.js');
+const { pathToFileURL } = require('url');
 
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -10,9 +12,11 @@ if (!gotTheLock) {
 
 let appList = [];
 let mainWindow = null;
+let snipWindow = null;
 let tray = null;
 let scanPromise = null;
 let isScanning = false;
+
 const WINDOW_WIDTH = 560;
 const MIN_WINDOW_HEIGHT = 110;
 const MAX_WINDOW_HEIGHT = 520;
@@ -25,6 +29,7 @@ const DEFAULT_CONFIG = {
 
 let currentConfig = null;
 let currentShortcut = null;
+let ocrWorkerPromise = null;
 
 function getConfigPath() {
   return path.join(app.getPath('userData'), 'config.json');
@@ -69,6 +74,78 @@ function setCachedIcon(id, iconData) {
   if (cache[id] === iconData) return;
   cache[id] = iconData;
   writeIconCacheFile(cache);
+}
+
+// async function getOcrWorker() {
+//   if (ocrWorkerPromise) return ocrWorkerPromise;
+
+//   ocrWorkerPromise = (async () => {
+//     const tessdataDir = app.isPackaged
+//       ? path.join(process.resourcesPath, 'tessdata')
+//       : path.join(__dirname, 'tessdata');
+
+//     const engPath = path.join(tessdataDir, 'eng.traineddata');
+//     const chiPath = path.join(tessdataDir, 'chi_sim.traineddata');
+
+//     const hasLocalTessdata = fs.existsSync(engPath) && fs.existsSync(chiPath);
+
+//     let worker;
+
+//     if (hasLocalTessdata) {
+//       const langUrl = pathToFileURL(tessdataDir + path.sep).href;
+
+//       worker = await createWorker(
+//         ['eng', 'chi_sim'],
+//         1,
+//         {
+//           langPath: langUrl,
+//           gzip: false,
+//           cacheMethod: 'readOnly'
+//         }
+//       );
+//     } else {
+//       worker = await createWorker(['eng', 'chi_sim'], 1);
+//     }
+
+//     await worker.setParameters({
+//       tessedit_pageseg_mode: '6',
+//       preserve_interword_spaces: '1',
+//       user_defined_dpi: '300'
+//     });
+
+//     return worker;
+//   })();
+
+//   return ocrWorkerPromise;
+// }
+
+async function getOcrWorker() {
+  if (ocrWorkerPromise) return ocrWorkerPromise;
+
+  ocrWorkerPromise = (async () => {
+    const worker = await createWorker('eng+chi_sim', 1);
+
+    await worker.setParameters({
+      tessedit_pageseg_mode: '6',
+      preserve_interword_spaces: '1',
+      user_defined_dpi: '300'
+    });
+
+    return worker;
+  })();
+
+  return ocrWorkerPromise;
+}
+
+async function runOcrFromDataUrl(dataUrl) {
+  if (!dataUrl) return '';
+  const match = String(dataUrl).match(/^data:image\/\w+;base64,(.*)$/);
+  if (!match) return '';
+  const buffer = Buffer.from(match[1], 'base64');
+
+  const worker = await getOcrWorker();
+  const result = await worker.recognize(buffer);
+  return String(result?.data?.text || '').trim();
 }
 
 function readConfig() {
@@ -125,6 +202,27 @@ function registerLauncherShortcut(shortcut) {
   }
 
   currentShortcut = accelerator;
+  return { success: true };
+}
+
+function registerOcrShortcut() {
+  const accelerator = 'F1';
+
+  try {
+    globalShortcut.unregister(accelerator);
+  } catch {
+    // ignore
+  }
+
+  const ok = globalShortcut.register(accelerator, () => {
+    openSnipWindow();
+  });
+
+  if (!ok) {
+    console.error('F1 shortcut registration failed');
+    return { success: false, error: 'F1 shortcut registration failed' };
+  }
+
   return { success: true };
 }
 
@@ -232,7 +330,6 @@ function createTray(platform) {
   }
 
   tray = new Tray(trayIcon);
-
   tray.setToolTip('Aura Launch');
 
   const contextMenu = Menu.buildFromTemplate([
@@ -257,16 +354,67 @@ function createTray(platform) {
   });
 }
 
-function showLauncher() {
-  if (!mainWindow) return;
-
-  if (mainWindow.isVisible()) {
-    mainWindow.hide();
-    return;
+function createSnipWindow() {
+  if (snipWindow && !snipWindow.isDestroyed()) {
+    return snipWindow;
   }
 
-  const [x, y] = mainWindow.getPosition();
+  const { screen } = require('electron');
+  const display = screen.getPrimaryDisplay();
 
+  snipWindow = new BrowserWindow({
+    width: display.bounds.width,
+    height: display.bounds.height,
+    x: display.bounds.x,
+    y: display.bounds.y,
+    fullscreen: false,
+    transparent: true,
+    frame: false,
+    show: false,
+    alwaysOnTop: true,
+    resizable: false,
+    skipTaskbar: true,
+    movable: false,
+    focusable: true,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  });
+
+  snipWindow.loadFile('snip.html');
+
+  snipWindow.on('closed', () => {
+    snipWindow = null;
+  });
+
+  snipWindow.webContents.on('did-finish-load', () => {
+    if (!snipWindow) return;
+    snipWindow.webContents.setZoomFactor(1);
+    snipWindow.webContents.setVisualZoomLevelLimits(1, 1).catch(() => {});
+  });
+
+  return snipWindow;
+}
+
+function openSnipWindow() {
+  const win = createSnipWindow();
+  if (!win) return;
+  win.show();
+  win.focus();
+}
+
+function showLauncher() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+  }
+
+  if (!mainWindow) return;
+
+  const [x, y] = mainWindow.getPosition();
   mainWindow.setBounds({
     x,
     y,
@@ -377,14 +525,116 @@ function createApp(platformModule) {
 
     currentConfig = readConfig();
     const applyResult = applyConfig(currentConfig, platform);
+    const ocrResult = registerOcrShortcut();
 
     if (!applyResult.success) {
       console.error(applyResult.error);
+    }
+    if (!ocrResult.success) {
+      console.error(ocrResult.error);
     }
 
     if (app.isPackaged && platform?.applyPackagedAutoLaunch) {
       platform.applyPackagedAutoLaunch(app);
     }
+
+    ipcMain.handle('get-primary-display-metrics', async () => {
+      const { screen } = require('electron');
+      const display = screen.getPrimaryDisplay();
+      return {
+        id: display.id,
+        width: display.size.width,
+        height: display.size.height,
+        scaleFactor: display.scaleFactor || 1
+      };
+    });
+
+    ipcMain.handle('capture-screen', async () => {
+      if (platform?.captureScreen) {
+        return platform.captureScreen();
+      }
+      return { success: false, error: 'capture not supported' };
+    });
+
+    ipcMain.handle('convert-snip-rect', async (_event, rect) => {
+      try {
+        if (!snipWindow || snipWindow.isDestroyed()) {
+          return { success: false, error: 'snip window unavailable' };
+        }
+
+        const { screen } = require('electron');
+        const display = screen.getPrimaryDisplay();
+        const contentBounds = snipWindow.getContentBounds();
+
+        const safeRect = {
+          x: Math.max(0, Number(rect?.x) || 0),
+          y: Math.max(0, Number(rect?.y) || 0),
+          width: Math.max(0, Number(rect?.w) || 0),
+          height: Math.max(0, Number(rect?.h) || 0)
+        };
+
+        const globalDipRect = {
+          x: contentBounds.x + safeRect.x,
+          y: contentBounds.y + safeRect.y,
+          width: safeRect.width,
+          height: safeRect.height
+        };
+
+        let globalScreenRect = null;
+        let displayScreenRect = null;
+
+        if (typeof screen.dipToScreenRect === 'function') {
+          globalScreenRect = screen.dipToScreenRect(snipWindow, globalDipRect);
+          displayScreenRect = screen.dipToScreenRect(snipWindow, {
+            x: display.bounds.x,
+            y: display.bounds.y,
+            width: display.bounds.width,
+            height: display.bounds.height
+          });
+        } else {
+          const scaleFactor = display.scaleFactor || 1;
+          globalScreenRect = {
+            x: Math.round(globalDipRect.x * scaleFactor),
+            y: Math.round(globalDipRect.y * scaleFactor),
+            width: Math.round(globalDipRect.width * scaleFactor),
+            height: Math.round(globalDipRect.height * scaleFactor)
+          };
+          displayScreenRect = {
+            x: Math.round(display.bounds.x * scaleFactor),
+            y: Math.round(display.bounds.y * scaleFactor),
+            width: Math.round(display.bounds.width * scaleFactor),
+            height: Math.round(display.bounds.height * scaleFactor)
+          };
+        }
+
+        const localScreenRect = {
+          x: Math.max(0, Math.round(globalScreenRect.x - displayScreenRect.x)),
+          y: Math.max(0, Math.round(globalScreenRect.y - displayScreenRect.y)),
+          width: Math.max(0, Math.round(globalScreenRect.width)),
+          height: Math.max(0, Math.round(globalScreenRect.height))
+        };
+
+        return {
+          success: true,
+          rect: {
+            sx: localScreenRect.x,
+            sy: localScreenRect.y,
+            sw: localScreenRect.width,
+            sh: localScreenRect.height
+          },
+          debug: {
+            contentBounds,
+            displayBounds: display.bounds,
+            displayScaleFactor: display.scaleFactor || 1,
+            globalDipRect,
+            globalScreenRect,
+            displayScreenRect
+          }
+        };
+      } catch (error) {
+        return { success: false, error: error.message || String(error) };
+      }
+    });
 
     ipcMain.handle('get-settings', async () => {
       currentConfig = readConfig();
@@ -473,6 +723,38 @@ function createApp(platformModule) {
       return results;
     });
 
+    ipcMain.handle('ocr-image', async (_event, dataUrl) => {
+      try {
+        const text = await runOcrFromDataUrl(dataUrl);
+        return { success: true, text };
+      } catch (error) {
+        console.error('OCR failed:', error);
+        return { success: false, error: error.message || 'OCR failed' };
+      }
+    });
+
+    ipcMain.handle('preload-ocr', async () => {
+      try {
+        await getOcrWorker();
+        return { success: true };
+      } catch (error) {
+        console.error('OCR preload failed:', error);
+        return { success: false, error: error.message || 'OCR preload failed' };
+      }
+    });
+
+    ipcMain.handle('show-snip', () => {
+      openSnipWindow();
+      return { success: true };
+    });
+
+    ipcMain.handle('close-snip', () => {
+      if (snipWindow && !snipWindow.isDestroyed()) {
+        snipWindow.close();
+      }
+      return { success: true };
+    });
+
     ipcMain.handle('resize-window', async (_event, height) => {
       if (!mainWindow || mainWindow.isDestroyed()) {
         return { success: false };
@@ -496,7 +778,7 @@ function createApp(platformModule) {
       return { success: true, height: nextHeight };
     });
 
-    ipcMain.handle('launch-app', async (_, payload) => {
+    ipcMain.handle('launch-app', async (_event, payload) => {
       return launchApplication(payload, platform);
     });
 
@@ -505,6 +787,10 @@ function createApp(platformModule) {
         mainWindow.hide();
       }
       return { success: true };
+    });
+
+    getOcrWorker().catch((error) => {
+      console.error('Initial OCR worker preload failed:', error);
     });
 
     try {

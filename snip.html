@@ -1,0 +1,400 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Screen OCR</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      cursor: crosshair;
+      background: transparent;
+      user-select: none;
+    }
+
+    #canvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 1;
+    }
+
+    #hint {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.45);
+      color: #eee;
+      font-size: 12px;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    #toolbar {
+      position: fixed;
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      padding: 8px 10px;
+      background: rgba(20, 20, 20, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 12px;
+      top: 16px;
+      right: 16px;
+      max-width: calc(100vw - 32px);
+      z-index: 3;
+    }
+
+    #toolbar button {
+      border: none;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: #0A84FF;
+      color: #fff;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    #toolbar button.secondary {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    #toolbar button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    #result {
+      width: 260px;
+      max-width: 360px;
+      max-height: 120px;
+      min-height: 80px;
+      resize: none;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      color: #ddd;
+      font-size: 12px;
+      white-space: pre-wrap;
+      padding: 6px;
+      outline: none;
+      user-select: text;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="hint">加载截图中...</div>
+  <div id="toolbar">
+    <button id="ocr-btn" disabled>OCR 识别</button>
+    <button id="copy-btn" class="secondary" disabled>复制</button>
+    <button id="close-btn" class="secondary">关闭</button>
+    <textarea id="result" readonly></textarea>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const toolbar = document.getElementById('toolbar');
+    const hintEl = document.getElementById('hint');
+    const ocrBtn = document.getElementById('ocr-btn');
+    const copyBtn = document.getElementById('copy-btn');
+    const closeBtn = document.getElementById('close-btn');
+    const resultEl = document.getElementById('result');
+    const ctx = canvas.getContext('2d');
+
+    let screenshot = null;
+    let captureMeta = null;
+    let isSelecting = false;
+    let startX = 0;
+    let startY = 0;
+    let endX = 0;
+    let endY = 0;
+    let lastCropDataUrl = '';
+    let lastMappedRect = null;
+
+    let capturePromise = null;
+    let captureReady = false;
+    let captureError = '';
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function getSelectionRect() {
+      const x = Math.min(startX, endX);
+      const y = Math.min(startY, endY);
+      const w = Math.abs(endX - startX);
+      const h = Math.abs(endY - startY);
+      return { x, y, w, h };
+    }
+
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.style.width = `${window.innerWidth}px`;
+      canvas.style.height = `${window.innerHeight}px`;
+      canvas.width = Math.max(1, Math.round(window.innerWidth * dpr));
+      canvas.height = Math.max(1, Math.round(window.innerHeight * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      redraw();
+    }
+
+    function redraw() {
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+      const { x, y, w, h } = getSelectionRect();
+      if (w > 0 && h > 0) {
+        ctx.clearRect(x, y, w, h);
+        ctx.strokeStyle = '#0A84FF';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 1, y + 1, Math.max(0, w - 2), Math.max(0, h - 2));
+      }
+    }
+
+    async function mapCssRectToImageRect(rect) {
+      if (!screenshot || !captureMeta) return null;
+      if (rect.w < 1 || rect.h < 1) return null;
+
+      try {
+        const mapped = await window.electronAPI.convertSnipRect(rect);
+        if (mapped?.success && mapped.rect) {
+          const sx = clamp(Math.round(mapped.rect.sx), 0, screenshot.naturalWidth);
+          const sy = clamp(Math.round(mapped.rect.sy), 0, screenshot.naturalHeight);
+          const ex = clamp(Math.round(mapped.rect.sx + mapped.rect.sw), 0, screenshot.naturalWidth);
+          const ey = clamp(Math.round(mapped.rect.sy + mapped.rect.sh), 0, screenshot.naturalHeight);
+          return {
+            sx,
+            sy,
+            sw: Math.max(0, ex - sx),
+            sh: Math.max(0, ey - sy),
+            debug: mapped.debug || null
+          };
+        }
+      } catch {
+        // ignore and fallback below
+      }
+
+      const fallbackScaleX = screenshot.naturalWidth / Math.max(1, window.innerWidth);
+      const fallbackScaleY = screenshot.naturalHeight / Math.max(1, window.innerHeight);
+      const sx = clamp(Math.round(rect.x * fallbackScaleX), 0, screenshot.naturalWidth);
+      const sy = clamp(Math.round(rect.y * fallbackScaleY), 0, screenshot.naturalHeight);
+      const ex = clamp(Math.round((rect.x + rect.w) * fallbackScaleX), 0, screenshot.naturalWidth);
+      const ey = clamp(Math.round((rect.y + rect.h) * fallbackScaleY), 0, screenshot.naturalHeight);
+      return {
+        sx,
+        sy,
+        sw: Math.max(0, ex - sx),
+        sh: Math.max(0, ey - sy),
+        debug: { fallbackScaleX, fallbackScaleY }
+      };
+    }
+
+    async function getCropDataUrl() {
+      const rect = getSelectionRect();
+      if (rect.w < 5 || rect.h < 5 || !screenshot) return '';
+
+      const imageRect = await mapCssRectToImageRect(rect);
+      lastMappedRect = imageRect;
+      if (!imageRect || imageRect.sw < 5 || imageRect.sh < 5) return '';
+
+      const crop = document.createElement('canvas');
+      crop.width = imageRect.sw;
+      crop.height = imageRect.sh;
+      const cctx = crop.getContext('2d');
+      cctx.drawImage(
+        screenshot,
+        imageRect.sx,
+        imageRect.sy,
+        imageRect.sw,
+        imageRect.sh,
+        0,
+        0,
+        imageRect.sw,
+        imageRect.sh
+      );
+      return crop.toDataURL('image/png');
+    }
+
+    function positionToolbar() {
+      const { x, y, w, h } = getSelectionRect();
+      const top = Math.min(window.innerHeight - 50, y + h + 8);
+      const left = Math.min(window.innerWidth - 420, x);
+      toolbar.style.left = `${Math.max(8, left)}px`;
+      toolbar.style.top = `${Math.max(8, top)}px`;
+      toolbar.style.right = 'auto';
+    }
+
+    function setResult(text) {
+      resultEl.value = text || '';
+      copyBtn.disabled = !String(text || '').trim();
+    }
+
+    async function init() {
+      hintEl.textContent = '拖拽鼠标选择区域，Esc 退出';
+      resizeCanvas();
+
+      captureReady = false;
+      captureError = '';
+      screenshot = null;
+      captureMeta = null;
+
+      capturePromise = (async () => {
+        try {
+          const capture = await window.electronAPI.capturePrimaryScreenDataUrl();
+          if (!capture || !capture.success) {
+            throw new Error(capture?.error || 'unknown');
+          }
+
+          const dataUrl = capture.dataUrl || '';
+          if (!dataUrl) {
+            throw new Error('empty dataUrl');
+          }
+
+          captureMeta = {
+            imageWidth: Number(capture.imageWidth) || 0,
+            imageHeight: Number(capture.imageHeight) || 0,
+            screenX: Number(capture.screenX) || 0,
+            screenY: Number(capture.screenY) || 0
+          };
+
+          const img = new Image();
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = () => reject(new Error('截图加载失败'));
+            img.src = dataUrl;
+          });
+
+          screenshot = img;
+          captureReady = true;
+          redraw();
+        } catch (error) {
+          captureError = error?.message || String(error);
+          captureReady = false;
+          hintEl.textContent = `截图初始化失败：${captureError}`;
+        }
+      })();
+    }
+
+    canvas.addEventListener('pointerdown', (event) => {
+      canvas.setPointerCapture(event.pointerId);
+      isSelecting = true;
+      startX = clamp(event.clientX, 0, window.innerWidth);
+      startY = clamp(event.clientY, 0, window.innerHeight);
+      endX = startX;
+      endY = startY;
+      lastCropDataUrl = '';
+      ocrBtn.disabled = true;
+      setResult('');
+      redraw();
+    });
+
+    canvas.addEventListener('pointermove', (event) => {
+      if (!isSelecting) return;
+      endX = clamp(event.clientX, 0, window.innerWidth);
+      endY = clamp(event.clientY, 0, window.innerHeight);
+      redraw();
+    });
+
+    canvas.addEventListener('pointerup', async (event) => {
+      if (!isSelecting) return;
+      isSelecting = false;
+      try { canvas.releasePointerCapture(event.pointerId); } catch {}
+
+      endX = clamp(event.clientX, 0, window.innerWidth);
+      endY = clamp(event.clientY, 0, window.innerHeight);
+
+      positionToolbar();
+      redraw();
+
+      const w = Math.abs(endX - startX);
+      const h = Math.abs(endY - startY);
+      if (w < 5 || h < 5) {
+        lastCropDataUrl = '';
+        ocrBtn.disabled = true;
+        setResult('选区过小或为空');
+        return;
+      }
+
+      if (!captureReady) {
+        setResult('正在准备截图，请稍候...');
+        ocrBtn.disabled = true;
+        try {
+          if (capturePromise) {
+            await capturePromise;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!screenshot) {
+        lastCropDataUrl = '';
+        ocrBtn.disabled = true;
+        setResult(captureError || '截图未就绪，无法识别');
+        return;
+      }
+
+      lastCropDataUrl = await getCropDataUrl();
+      if (!lastCropDataUrl) {
+        ocrBtn.disabled = true;
+        setResult('无法生成识别区域');
+        return;
+      }
+
+      setResult('');
+      ocrBtn.disabled = false;
+    });
+
+    ocrBtn.addEventListener('click', async () => {
+      if (!lastCropDataUrl) return;
+      ocrBtn.disabled = true;
+      ocrBtn.textContent = '识别中...';
+      setResult('');
+
+      try {
+        const result = await window.electronAPI.ocrImage(lastCropDataUrl);
+        if (!result?.success) {
+          setResult(result?.error || '识别失败');
+          return;
+        }
+        const text = String(result.text || '').trim();
+        setResult(text || '未识别到文字');
+      } finally {
+        ocrBtn.disabled = false;
+        ocrBtn.textContent = 'OCR 识别';
+      }
+    });
+
+    copyBtn.addEventListener('click', () => {
+      const text = resultEl.value || '';
+      if (!text) return;
+      window.electronAPI.copyText(text);
+    });
+
+    closeBtn.addEventListener('click', async () => {
+      await window.electronAPI.closeSnip();
+    });
+
+    window.addEventListener('keydown', async (event) => {
+      if (event.key === 'Escape') {
+        await window.electronAPI.closeSnip();
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      resizeCanvas();
+    });
+
+    init();
+  </script>
+</body>
+</html>

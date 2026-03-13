@@ -1,4 +1,4 @@
-const { app, shell, nativeImage } = require('electron');
+﻿const { app, shell, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -569,6 +569,50 @@ async function launchApplication(target) {
   return { success: true };
 }
 
+async function captureScreen() {
+  const tempPath = path.join(os.tmpdir(), 'aura_capture_' + Date.now() + '.png');
+  const safePath = tempPath.replace(/'/g, "''");
+  const psScript = [
+    'Add-Type -AssemblyName System.Drawing',
+    'Add-Type -AssemblyName System.Windows.Forms',
+    '$path = \'' + safePath + '\'',
+    '$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds',
+    '$bitmap = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)',
+    '$graphics = [System.Drawing.Graphics]::FromImage($bitmap)',
+    '$graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)',
+    '$bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)',
+    '$graphics.Dispose()',
+    '$bitmap.Dispose()'
+  ].join('\n');
+
+  try {
+    await execFileAsync(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript],
+      { encoding: 'utf8' }
+    );
+
+    const buffer = fs.readFileSync(tempPath);
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {
+      // ignore
+    }
+
+    const dataUrl = 'data:image/png;base64,' + buffer.toString('base64');
+    return { success: true, dataUrl };
+  } catch (error) {
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+    } catch {
+      // ignore
+    }
+
+    return { success: false, error: error.message || String(error) };
+  }
+}
 function applyAutoLaunch(config, appInstance) {
   if (!appInstance?.setLoginItemSettings) return;
   appInstance.setLoginItemSettings({
@@ -590,6 +634,7 @@ function getTrayIconPath({ path: pathModule, __dirname }) {
 }
 
 module.exports = {
+  captureScreen,
   getAppIcon,
   applyAutoLaunch,
   applyPackagedAutoLaunch,
@@ -597,3 +642,10 @@ module.exports = {
   launchApplication,
   getTrayIconPath
 };
+
+
+
+
+
+
+
